@@ -328,6 +328,73 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
   }
 });
 
+// Join an Event
+app.post("/api/events/:id/join", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID",
+      });
+    }
+
+    const userEmail = req.user.email?.toLowerCase();
+
+    if (!userEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+    }
+
+    const db = getDB();
+
+    const event = await db.collection("events").findOne({
+      _id: new ObjectId(id),
+      eventDate: { $gte: new Date() },
+    });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Upcoming event not found",
+      });
+    }
+
+    const existingJoin = await db.collection("eventParticipants").findOne({
+      eventId: new ObjectId(id),
+      userEmail,
+    });
+
+    if (existingJoin) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already joined this event",
+      });
+    }
+
+    await db.collection("eventParticipants").insertOne({
+      eventId: new ObjectId(id),
+      userEmail,
+      joinedAt: new Date(),
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "You joined the event successfully",
+    });
+  } catch (error) {
+    console.error("Join event error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to join event",
+    });
+  }
+});
+
 async function startServer() {
   try {
     await connectDB();
