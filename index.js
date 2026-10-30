@@ -155,6 +155,41 @@ app.post("/api/events", verifyToken, async (req, res) => {
   }
 });
 
+// Get Events Created by Logged-in User
+app.get("/api/events/my-events", verifyToken, async (req, res) => {
+  try {
+    const db = getDB();
+
+    const creatorEmail = req.user.email?.toLowerCase();
+
+    if (!creatorEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+    }
+
+    const events = await db
+      .collection("events")
+      .find({ creatorEmail })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      count: events.length,
+      events,
+    });
+  } catch (error) {
+    console.error("My events error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to load your events",
+    });
+  }
+});
+
 async function startServer() {
   try {
     await connectDB();
