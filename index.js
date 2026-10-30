@@ -74,6 +74,87 @@ app.get("/api/protected", verifyToken, (req, res) => {
   });
 });
 
+// Create a New Event
+app.post("/api/events", verifyToken, async (req, res) => {
+  try {
+    const { title, description, category, image, location, eventDate } =
+      req.body;
+
+    // Validate required fields
+    if (
+      !title?.trim() ||
+      !description?.trim() ||
+      !category?.trim() ||
+      !image?.trim() ||
+      !location?.trim() ||
+      !eventDate
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
+
+    // Validate event date
+    const parsedDate = new Date(eventDate);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event date",
+      });
+    }
+
+    if (parsedDate <= new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Event date must be in the future",
+      });
+    }
+
+    // Get authenticated user's email
+    const creatorEmail = req.user.email;
+
+    if (!creatorEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+    }
+
+    const newEvent = {
+      title: title.trim(),
+      description: description.trim(),
+      category: category.trim(),
+      image: image.trim(),
+      location: location.trim(),
+      eventDate: parsedDate,
+      creatorEmail: creatorEmail.toLowerCase(),
+      createdAt: new Date(),
+    };
+
+    const db = getDB();
+
+    const result = await db.collection("events").insertOne(newEvent);
+
+    res.status(201).json({
+      success: true,
+      message: "Event created successfully",
+      event: {
+        _id: result.insertedId,
+        ...newEvent,
+      },
+    });
+  } catch (error) {
+    console.error("Create event error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create event",
+    });
+  }
+});
+
 async function startServer() {
   try {
     await connectDB();
