@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import "dotenv/config";
 import { connectDB, getDB } from "./config/mongodb.js";
 import { verifyToken } from "./middleware/verifyToken.js";
+import { ObjectId } from "mongodb";
 
 const app = express();
 
@@ -186,6 +187,94 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to load your events",
+    });
+  }
+});
+
+// Update Own Event
+app.patch("/api/events/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID",
+      });
+    }
+
+    const { title, description, category, image, location, eventDate } =
+      req.body;
+
+    if (
+      !title?.trim() ||
+      !description?.trim() ||
+      !category?.trim() ||
+      !image?.trim() ||
+      !location?.trim() ||
+      !eventDate
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
+
+    const parsedDate = new Date(eventDate);
+
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate <= new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid future event date",
+      });
+    }
+
+    const creatorEmail = req.user.email?.toLowerCase();
+
+    if (!creatorEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+    }
+
+    const db = getDB();
+
+    const result = await db.collection("events").updateOne(
+      {
+        _id: new ObjectId(id),
+        creatorEmail,
+      },
+      {
+        $set: {
+          title: title.trim(),
+          description: description.trim(),
+          category: category.trim(),
+          image: image.trim(),
+          location: location.trim(),
+          eventDate: parsedDate,
+          updatedAt: new Date(),
+        },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found or you are not the owner",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Event updated successfully",
+    });
+  } catch (error) {
+    console.error("Update event error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update event",
     });
   }
 });
