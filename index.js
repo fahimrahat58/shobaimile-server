@@ -279,6 +279,55 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
   }
 });
 
+// Delete Own Event
+app.delete("/api/events/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID",
+      });
+    }
+
+    const creatorEmail = req.user.email?.toLowerCase();
+
+    if (!creatorEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+    }
+
+    const db = getDB();
+
+    const result = await db.collection("events").deleteOne({
+      _id: new ObjectId(id),
+      creatorEmail,
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found or you are not the owner",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Event deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete event error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete event",
+    });
+  }
+});
+
 async function startServer() {
   try {
     await connectDB();
