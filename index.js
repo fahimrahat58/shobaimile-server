@@ -3,7 +3,8 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import "dotenv/config";
-import { connectDB } from "./config/mongodb.js";
+import { connectDB, getDB } from "./config/mongodb.js";
+import { verifyToken } from "./middleware/verifyToken.js";
 
 const app = express();
 
@@ -27,10 +28,49 @@ app.use(
   }),
 );
 
+// Health Check
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
     message: "ShobaiMile API is running!",
+  });
+});
+
+// Get Latest 6 Upcoming Events
+app.get("/api/events/upcoming", async (req, res) => {
+  try {
+    const db = getDB();
+
+    const events = await db
+      .collection("events")
+      .find({
+        eventDate: { $gte: new Date() },
+      })
+      .sort({ eventDate: 1 })
+      .limit(6)
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      count: events.length,
+      events,
+    });
+  } catch (error) {
+    console.error("Upcoming events error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to load upcoming events",
+    });
+  }
+});
+
+// Protected Route Test
+app.get("/api/protected", verifyToken, (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "You are authenticated!",
+    user: req.user,
   });
 });
 
