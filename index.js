@@ -395,6 +395,67 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
   }
 });
 
+// Get Events Joined by Logged-in User
+app.get("/api/events/joined", verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email?.toLowerCase();
+
+    if (!userEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+    }
+
+    const db = getDB();
+
+    const joinedEvents = await db
+      .collection("eventParticipants")
+      .aggregate([
+        {
+          $match: { userEmail },
+        },
+        {
+          $lookup: {
+            from: "events",
+            localField: "eventId",
+            foreignField: "_id",
+            as: "event",
+          },
+        },
+        {
+          $unwind: "$event",
+        },
+        {
+          $sort: {
+            "event.eventDate": 1,
+          },
+        },
+        {
+          $project: {
+            _id: 1,
+            joinedAt: 1,
+            event: 1,
+          },
+        },
+      ])
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      count: joinedEvents.length,
+      events: joinedEvents,
+    });
+  } catch (error) {
+    console.error("Joined events error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to load joined events",
+    });
+  }
+});
+
 async function startServer() {
   try {
     await connectDB();
