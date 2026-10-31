@@ -12,6 +12,8 @@ import { randomUUID } from "node:crypto";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// ================= MIDDLEWARE =================
+
 app.use(helmet());
 
 app.use(
@@ -23,6 +25,32 @@ app.use(
 
 app.use(express.json());
 
+// ================= GLOBAL DEBUG LOGGER =================
+
+app.use((req, res, next) => {
+  console.log("\n========================================");
+  console.log("🌐 INCOMING REQUEST");
+  console.log("Method:", req.method);
+  console.log("URL:", req.originalUrl);
+  console.log("Time:", new Date().toLocaleString("en-BD"));
+  console.log(
+    "Authorization:",
+    req.headers.authorization ? "✅ Bearer token present" : "❌ No token",
+  );
+
+  if (Object.keys(req.body || {}).length > 0) {
+    console.log("Request Body:", req.body);
+  }
+
+  res.on("finish", () => {
+    console.log("Response Status:", res.statusCode);
+    console.log("Completed:", req.method, req.originalUrl);
+    console.log("========================================\n");
+  });
+
+  next();
+});
+
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -30,16 +58,165 @@ app.use(
   }),
 );
 
-// Health Check
+// ================= CONSTANTS =================
+
+const allowedCategories = [
+  "Cleanup",
+  "Plantation",
+  "Donation",
+  "Education",
+  "Food Support",
+  "Animal Welfare",
+  "Other",
+];
+
+const getTodayBD = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Dhaka",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
+const normalizeEmail = (email) => email?.trim().toLowerCase();
+
+// ================= VALIDATION =================
+
+const validateEventData = (data) => {
+  const {
+    title,
+    description,
+    category,
+    image,
+    location,
+    eventDate,
+    volunteerGuidelines,
+  } = data;
+
+  if (
+    typeof title !== "string" ||
+    typeof description !== "string" ||
+    typeof category !== "string" ||
+    typeof image !== "string" ||
+    typeof location !== "string" ||
+    typeof eventDate !== "string"
+  ) {
+    return "Invalid event information.";
+  }
+
+  const cleanTitle = title.trim();
+  const cleanDescription = description.trim();
+  const cleanCategory = category.trim();
+  const cleanImage = image.trim();
+  const cleanLocation = location.trim();
+
+  if (cleanTitle.length < 3 || cleanTitle.length > 100) {
+    return "Title must be between 3 and 100 characters.";
+  }
+
+  if (cleanDescription.length < 10 || cleanDescription.length > 2000) {
+    return "Description must be between 10 and 2000 characters.";
+  }
+
+  if (!allowedCategories.includes(cleanCategory)) {
+    return "Invalid event category.";
+  }
+
+  try {
+    const imageURL = new URL(cleanImage);
+
+    if (
+      !["http:", "https:"].includes(imageURL.protocol) ||
+      !imageURL.hostname.includes(".")
+    ) {
+      return "Invalid image URL.";
+    }
+  } catch {
+    return "Please provide a valid image URL.";
+  }
+
+  if (cleanLocation.length < 3 || cleanLocation.length > 200) {
+    return "Location must be between 3 and 200 characters.";
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
+    return "Invalid event date format.";
+  }
+
+  const parsedDate = new Date(`${eventDate}T00:00:00.000Z`);
+
+  if (
+    Number.isNaN(parsedDate.getTime()) ||
+    parsedDate.toISOString().slice(0, 10) !== eventDate
+  ) {
+    return "Invalid event date.";
+  }
+
+  if (eventDate <= getTodayBD()) {
+    return "Event date must be in the future.";
+  }
+
+  if (
+    !Array.isArray(volunteerGuidelines) ||
+    volunteerGuidelines.length < 1 ||
+    volunteerGuidelines.length > 10
+  ) {
+    return "Add between 1 and 10 volunteer guidelines.";
+  }
+
+  const validGuidelines = volunteerGuidelines.every(
+    (item) =>
+      typeof item === "string" &&
+      item.trim().length >= 3 &&
+      item.trim().length <= 200,
+  );
+
+  if (!validGuidelines) {
+    return "Each guideline must be between 3 and 200 characters.";
+  }
+
+  return null;
+};
+
+const prepareEventData = (data) => ({
+  title: data.title.trim(),
+  description: data.description.trim(),
+  category: data.category.trim(),
+  image: data.image.trim(),
+  location: data.location.trim(),
+  eventDate: new Date(`${data.eventDate}T00:00:00.000Z`),
+  volunteerGuidelines: data.volunteerGuidelines.map((item) => item.trim()),
+});
+
+// ================= HEALTH CHECK =================
+
 app.get("/", (req, res) => {
-  res.status(200).json({
+  console.log("🏠 HEALTH CHECK API HIT");
+
+  return res.status(200).json({
     success: true,
     message: "ShobaiMile API is running!",
   });
 });
 
-// Get Latest 6 Upcoming Events
+// ================= PROTECTED TEST =================
+
+app.get("/api/protected", verifyToken, (req, res) => {
+  console.log("🔐 PROTECTED ROUTE HIT");
+  console.log("Authenticated User:", req.user.email);
+
+  return res.status(200).json({
+    success: true,
+    message: "You are authenticated!",
+    user: req.user,
+  });
+});
+
+// ================= UPCOMING EVENTS =================
+
 app.get("/api/events/upcoming", async (req, res) => {
+  console.log("📅 UPCOMING EVENTS API HIT");
+
   try {
     const db = getDB();
 
@@ -50,13 +227,16 @@ app.get("/api/events/upcoming", async (req, res) => {
       .limit(6)
       .toArray();
 
+    console.log("✅ Upcoming Events Found:", events.length);
+
     return res.status(200).json({
       success: true,
       count: events.length,
       events,
     });
   } catch (error) {
-    console.error("Upcoming events error:", error);
+    console.error("❌ Upcoming events error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load upcoming events",
@@ -64,52 +244,15 @@ app.get("/api/events/upcoming", async (req, res) => {
   }
 });
 
-// Protected Route Test
-app.get("/api/protected", verifyToken, (req, res) => {
-  return res.status(200).json({
-    success: true,
-    message: "You are authenticated!",
-    user: req.user,
-  });
-});
+// ================= CREATE EVENT =================
 
-// Create a New Event
 app.post("/api/events", verifyToken, async (req, res) => {
+  console.log("➕ CREATE EVENT API HIT");
+
   try {
-    const { title, description, category, image, location, eventDate } =
-      req.body;
+    const creatorEmail = normalizeEmail(req.user.email);
 
-    if (
-      !title?.trim() ||
-      !description?.trim() ||
-      !category?.trim() ||
-      !image?.trim() ||
-      !location?.trim() ||
-      !eventDate
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "All fields are required",
-      });
-    }
-
-    const parsedDate = new Date(eventDate);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid event date",
-      });
-    }
-
-    if (parsedDate <= new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: "Event date must be in the future",
-      });
-    }
-
-    const creatorEmail = req.user.email?.trim().toLowerCase();
+    console.log("Logged-in User:", creatorEmail);
 
     if (!creatorEmail) {
       return res.status(401).json({
@@ -118,19 +261,30 @@ app.post("/api/events", verifyToken, async (req, res) => {
       });
     }
 
+    const validationError = validateEventData(req.body);
+
+    if (validationError) {
+      console.log("❌ Validation Error:", validationError);
+
+      return res.status(400).json({
+        success: false,
+        message: validationError,
+      });
+    }
+
     const newEvent = {
-      title: title.trim(),
-      description: description.trim(),
-      category: category.trim(),
-      image: image.trim(),
-      location: location.trim(),
-      eventDate: parsedDate,
+      ...prepareEventData(req.body),
       creatorEmail,
       createdAt: new Date(),
     };
 
     const db = getDB();
+
+    console.log("🔄 Inserting event into MongoDB...");
+
     const result = await db.collection("events").insertOne(newEvent);
+
+    console.log("✅ Event Created:", result.insertedId);
 
     return res.status(201).json({
       success: true,
@@ -141,7 +295,8 @@ app.post("/api/events", verifyToken, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Create event error:", error);
+    console.error("❌ Create event error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to create event",
@@ -149,10 +304,13 @@ app.post("/api/events", verifyToken, async (req, res) => {
   }
 });
 
-// Get Events Created by Logged-in User
+// ================= MY EVENTS =================
+
 app.get("/api/events/my-events", verifyToken, async (req, res) => {
+  console.log("📌 MY EVENTS API HIT");
+
   try {
-    const creatorEmail = req.user.email?.trim().toLowerCase();
+    const creatorEmail = normalizeEmail(req.user.email);
 
     if (!creatorEmail) {
       return res.status(401).json({
@@ -169,13 +327,16 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
       .sort({ createdAt: -1 })
       .toArray();
 
+    console.log("✅ Events Found:", events.length);
+
     return res.status(200).json({
       success: true,
       count: events.length,
       events,
     });
   } catch (error) {
-    console.error("My events error:", error);
+    console.error("❌ My events error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load your events",
@@ -183,8 +344,11 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
   }
 });
 
-// Update Own Event
+// ================= UPDATE EVENT =================
+
 app.patch("/api/events/:id", verifyToken, async (req, res) => {
+  console.log("✏️ UPDATE EVENT API HIT");
+
   try {
     const { id } = req.params;
 
@@ -195,33 +359,16 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
       });
     }
 
-    const { title, description, category, image, location, eventDate } =
-      req.body;
+    const validationError = validateEventData(req.body);
 
-    if (
-      !title?.trim() ||
-      !description?.trim() ||
-      !category?.trim() ||
-      !image?.trim() ||
-      !location?.trim() ||
-      !eventDate
-    ) {
+    if (validationError) {
       return res.status(400).json({
         success: false,
-        message: "All fields are required",
+        message: validationError,
       });
     }
 
-    const parsedDate = new Date(eventDate);
-
-    if (Number.isNaN(parsedDate.getTime()) || parsedDate <= new Date()) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide a valid future event date",
-      });
-    }
-
-    const creatorEmail = req.user.email?.trim().toLowerCase();
+    const creatorEmail = normalizeEmail(req.user.email);
 
     if (!creatorEmail) {
       return res.status(401).json({
@@ -239,16 +386,14 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
       },
       {
         $set: {
-          title: title.trim(),
-          description: description.trim(),
-          category: category.trim(),
-          image: image.trim(),
-          location: location.trim(),
-          eventDate: parsedDate,
+          ...prepareEventData(req.body),
           updatedAt: new Date(),
         },
       },
     );
+
+    console.log("Matched:", result.matchedCount);
+    console.log("Modified:", result.modifiedCount);
 
     if (result.matchedCount === 0) {
       return res.status(404).json({
@@ -262,7 +407,8 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
       message: "Event updated successfully",
     });
   } catch (error) {
-    console.error("Update event error:", error);
+    console.error("❌ Update event error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to update event",
@@ -270,8 +416,11 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
   }
 });
 
-// Delete Own Event
+// ================= DELETE EVENT =================
+
 app.delete("/api/events/:id", verifyToken, async (req, res) => {
+  console.log("🗑️ DELETE EVENT API HIT");
+
   try {
     const { id } = req.params;
 
@@ -282,7 +431,7 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
       });
     }
 
-    const creatorEmail = req.user.email?.trim().toLowerCase();
+    const creatorEmail = normalizeEmail(req.user.email);
 
     if (!creatorEmail) {
       return res.status(401).json({
@@ -298,6 +447,8 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
       creatorEmail,
     });
 
+    console.log("Deleted Count:", result.deletedCount);
+
     if (result.deletedCount === 0) {
       return res.status(404).json({
         success: false,
@@ -310,7 +461,8 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
       message: "Event deleted successfully",
     });
   } catch (error) {
-    console.error("Delete event error:", error);
+    console.error("❌ Delete event error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to delete event",
@@ -318,10 +470,14 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
   }
 });
 
-// Join an Event
+// ================= JOIN EVENT =================
+
 app.post("/api/events/:id/join", verifyToken, async (req, res) => {
+  console.log("🤝 JOIN EVENT API HIT");
+
   try {
     const { id } = req.params;
+    const userEmail = normalizeEmail(req.user.email);
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -329,8 +485,6 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
         message: "Invalid event ID",
       });
     }
-
-    const userEmail = req.user.email?.trim().toLowerCase();
 
     if (!userEmail) {
       return res.status(401).json({
@@ -372,11 +526,15 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
       joinedAt: new Date(),
     });
 
+    console.log("✅ User joined event successfully");
+
     return res.status(201).json({
       success: true,
       message: "You joined the event successfully",
     });
   } catch (error) {
+    console.error("❌ Join event error:", error);
+
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -384,7 +542,6 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
       });
     }
 
-    console.error("Join event error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to join event",
@@ -392,23 +549,26 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
   }
 });
 
-// Get Participants of an Event (Event Organizer Only)
+// ================= EVENT PARTICIPANTS =================
+
 app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
+  console.log("👥 PARTICIPANTS API HIT");
+
   try {
     const { id } = req.params;
-    const organizerEmail = req.user.email?.trim().toLowerCase();
-
-    if (!organizerEmail) {
-      return res.status(401).json({
-        success: false,
-        message: "User email not found",
-      });
-    }
+    const organizerEmail = normalizeEmail(req.user.email);
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid event ID",
+      });
+    }
+
+    if (!organizerEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
       });
     }
 
@@ -434,7 +594,7 @@ app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
 
     const participants = await Promise.all(
       joinedParticipants.map(async (participant) => {
-        const participantEmail = participant.userEmail?.trim().toLowerCase();
+        const participantEmail = normalizeEmail(participant.userEmail);
 
         const volunteer = await db
           .collection("user")
@@ -460,13 +620,16 @@ app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
       }),
     );
 
+    console.log("Participants Found:", participants.length);
+
     return res.status(200).json({
       success: true,
       eventTitle: event.title,
       participants,
     });
   } catch (error) {
-    console.error("Get event participants error:", error);
+    console.error("❌ Participants error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load participants",
@@ -474,10 +637,13 @@ app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
   }
 });
 
-// Get Events Joined by Logged-in User
+// ================= JOINED EVENTS =================
+
 app.get("/api/events/joined", verifyToken, async (req, res) => {
+  console.log("📚 JOINED EVENTS API HIT");
+
   try {
-    const userEmail = req.user.email?.trim().toLowerCase();
+    const userEmail = normalizeEmail(req.user.email);
 
     if (!userEmail) {
       return res.status(401).json({
@@ -512,13 +678,16 @@ app.get("/api/events/joined", verifyToken, async (req, res) => {
       ])
       .toArray();
 
+    console.log("Joined Events Found:", joinedEvents.length);
+
     return res.status(200).json({
       success: true,
       count: joinedEvents.length,
       events: joinedEvents,
     });
   } catch (error) {
-    console.error("Joined events error:", error);
+    console.error("❌ Joined events error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load joined events",
@@ -526,13 +695,17 @@ app.get("/api/events/joined", verifyToken, async (req, res) => {
   }
 });
 
-// Verify a Participant's Attendance (Event Organizer Only)
+// ================= VERIFY PARTICIPANT =================
+
 app.post(
   "/api/events/:id/verify-participant",
   verifyToken,
   async (req, res) => {
+    console.log("✅ VERIFY PARTICIPANT API HIT");
+
     try {
       const { id } = req.params;
+      const organizerEmail = normalizeEmail(req.user.email);
       const { userEmail, volunteerHours } = req.body;
 
       if (!ObjectId.isValid(id)) {
@@ -542,28 +715,26 @@ app.post(
         });
       }
 
-      const organizerEmail = req.user.email?.trim().toLowerCase();
-      const participantEmail = userEmail?.trim().toLowerCase();
+      const participantEmail = normalizeEmail(userEmail);
       const hours = Number(volunteerHours);
 
       if (!organizerEmail || !participantEmail) {
         return res.status(400).json({
           success: false,
-          message: "Organizer and participant email are required",
+          message: "User email is required",
         });
       }
 
       if (!Number.isFinite(hours) || hours <= 0 || hours > 24) {
         return res.status(400).json({
           success: false,
-          message: "Volunteer hours must be greater than 0 and at most 24",
+          message: "Volunteer hours must be between 0 and 24",
         });
       }
 
       const db = getDB();
       const eventId = new ObjectId(id);
 
-      // Only the event organizer can verify attendance.
       const event = await db.collection("events").findOne({
         _id: eventId,
         creatorEmail: organizerEmail,
@@ -576,20 +747,10 @@ app.post(
         });
       }
 
-      // Allow verification only after the event's UTC calendar date ends.
-      const eventDate = new Date(event.eventDate);
-      const eventEnd = new Date(
-        Date.UTC(
-          eventDate.getUTCFullYear(),
-          eventDate.getUTCMonth(),
-          eventDate.getUTCDate() + 1,
-        ),
-      );
-
-      if (new Date() < eventEnd) {
+      if (new Date(event.eventDate) > new Date()) {
         return res.status(400).json({
           success: false,
-          message: "Attendance can only be verified after the event date",
+          message: "You can verify participants after the event ends",
         });
       }
 
@@ -601,18 +762,7 @@ app.post(
       if (!participant) {
         return res.status(404).json({
           success: false,
-          message: "This user has not joined the event",
-        });
-      }
-
-      const volunteer = await db.collection("user").findOne({
-        email: participantEmail,
-      });
-
-      if (!volunteer) {
-        return res.status(404).json({
-          success: false,
-          message: "Volunteer profile not found",
+          message: "Participant has not joined this event",
         });
       }
 
@@ -624,29 +774,32 @@ app.post(
       if (existingRecord) {
         return res.status(409).json({
           success: false,
-          message: "This volunteer's attendance has already been verified",
+          message: "Participant has already been verified",
         });
       }
 
-      // Count this volunteer's previously verified events.
-      const previousVerifiedEvents = await db
-        .collection("volunteerRecords")
-        .countDocuments({ userEmail: participantEmail });
+      const volunteer = await db
+        .collection("user")
+        .findOne(
+          { email: participantEmail },
+          { projection: { name: 1, email: 1 } },
+        );
 
-      // 50 points for participation + 20 points for every complete 2 hours.
-      // A one-time 50-point bonus is awarded when the volunteer reaches 5 events.
-      const participationPoints = 50;
-      const hourPoints = Math.floor(hours / 2) * 20;
-      const bonusPoints = previousVerifiedEvents === 4 ? 50 : 0;
+      const volunteerName = volunteer?.name || "Volunteer";
+
+      // Points calculation
+      const participationPoints = 10;
+      const hourPoints = Math.round(hours * 10);
+      const bonusPoints = 5;
       const totalPoints = participationPoints + hourPoints + bonusPoints;
 
       const certificateId = randomUUID();
 
-      const record = {
+      const volunteerRecord = {
         eventId,
         eventTitle: event.title,
         userEmail: participantEmail,
-        volunteerName: volunteer.name || "Volunteer",
+        volunteerName,
         volunteerHours: hours,
         participationPoints,
         hourPoints,
@@ -657,56 +810,54 @@ app.post(
         certificateId,
       };
 
-      await db.collection("volunteerRecords").insertOne(record);
+      await db.collection("volunteerRecords").insertOne(volunteerRecord);
 
-      const certificate = {
+      await db.collection("certificates").insertOne({
         certificateId,
         eventId,
         eventTitle: event.title,
         eventDate: event.eventDate,
         userEmail: participantEmail,
-        volunteerName: record.volunteerName,
+        volunteerName,
         volunteerHours: hours,
         issuedAt: new Date(),
-      };
+      });
 
-      await db.collection("certificates").insertOne(certificate);
+      console.log("✅ Participant verified:", participantEmail);
+      console.log("Total Points:", totalPoints);
+      console.log("Certificate ID:", certificateId);
 
-      return res.status(201).json({
+      return res.status(200).json({
         success: true,
-        message: "Attendance verified and certificate issued successfully",
-        record: {
-          eventTitle: event.title,
-          volunteerName: record.volunteerName,
-          volunteerHours: hours,
-          participationPoints,
-          hourPoints,
-          bonusPoints,
-          totalPoints,
-          certificateId,
-        },
+        message: "Participant verified successfully",
+        record: volunteerRecord,
+        certificateId,
       });
     } catch (error) {
+      console.error("❌ Verify participant error:", error);
+
       if (error.code === 11000) {
         return res.status(409).json({
           success: false,
-          message: "This volunteer's attendance has already been verified",
+          message: "Participant has already been verified",
         });
       }
 
-      console.error("Attendance verification error:", error);
       return res.status(500).json({
         success: false,
-        message: "Failed to verify attendance",
+        message: "Failed to verify participant",
       });
     }
   },
 );
 
-// Get Logged-in User's Community Impact Summary
+// ================= MY IMPACT =================
+
 app.get("/api/impact/me", verifyToken, async (req, res) => {
+  console.log("🌱 MY IMPACT API HIT");
+
   try {
-    const userEmail = req.user.email?.trim().toLowerCase();
+    const userEmail = normalizeEmail(req.user.email);
 
     if (!userEmail) {
       return res.status(401).json({
@@ -717,61 +868,48 @@ app.get("/api/impact/me", verifyToken, async (req, res) => {
 
     const db = getDB();
 
-    const summary = await db
+    const records = await db
       .collection("volunteerRecords")
-      .aggregate([
-        { $match: { userEmail } },
-        {
-          $group: {
-            _id: "$userEmail",
-            totalPoints: { $sum: "$totalPoints" },
-            volunteerHours: { $sum: "$volunteerHours" },
-            completedEvents: { $sum: 1 },
-          },
-        },
-      ])
+      .find({ userEmail })
+      .sort({ verifiedAt: -1 })
       .toArray();
 
-    const impact = summary[0] || {
-      totalPoints: 0,
-      volunteerHours: 0,
-      completedEvents: 0,
-    };
+    const totalHours = records.reduce(
+      (sum, record) => sum + (Number(record.volunteerHours) || 0),
+      0,
+    );
 
-    const badge =
-      impact.totalPoints >= 500
-        ? "Gold"
-        : impact.totalPoints >= 100
-          ? "Silver"
-          : "Bronze";
+    const totalPoints = records.reduce(
+      (sum, record) => sum + (Number(record.totalPoints) || 0),
+      0,
+    );
 
-    const nextMilestone =
-      impact.totalPoints >= 500 ? null : impact.totalPoints >= 100 ? 500 : 100;
+    console.log("Impact Records:", records.length);
+    console.log("Total Hours:", totalHours);
+    console.log("Total Points:", totalPoints);
 
     return res.status(200).json({
       success: true,
-      impact: {
-        totalPoints: impact.totalPoints,
-        volunteerHours: impact.volunteerHours,
-        completedEvents: impact.completedEvents,
-        badge,
-        nextMilestone,
-        pointsToNextMilestone: nextMilestone
-          ? Math.max(0, nextMilestone - impact.totalPoints)
-          : 0,
-      },
+      totalEvents: records.length,
+      totalHours,
+      totalPoints,
+      records,
     });
   } catch (error) {
-    console.error("Impact summary error:", error);
+    console.error("❌ My impact error:", error);
+
     return res.status(500).json({
       success: false,
-      message: "Failed to load impact summary",
+      message: "Failed to load impact data",
     });
   }
 });
 
-// Community Impact Leaderboard
-app.get("/api/impact/leaderboard", async (req, res) => {
+// ================= IMPACT LEADERBOARD =================
+
+app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
+  console.log("🏆 LEADERBOARD API HIT");
+
   try {
     const db = getDB();
 
@@ -781,32 +919,50 @@ app.get("/api/impact/leaderboard", async (req, res) => {
         {
           $group: {
             _id: "$userEmail",
-            volunteerName: { $last: "$volunteerName" },
-            totalPoints: { $sum: "$totalPoints" },
             volunteerHours: { $sum: "$volunteerHours" },
-            completedEvents: { $sum: 1 },
+            totalPoints: { $sum: "$totalPoints" },
+            totalEvents: { $sum: 1 },
           },
         },
-        { $sort: { totalPoints: -1, completedEvents: -1 } },
-        { $limit: 10 },
+        { $sort: { totalPoints: -1 } },
+        { $limit: 100 },
+        {
+          $lookup: {
+            from: "user",
+            localField: "_id",
+            foreignField: "email",
+            as: "user",
+          },
+        },
+        {
+          $unwind: {
+            path: "$user",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
         {
           $project: {
             _id: 0,
-            name: "$volunteerName",
-            totalPoints: 1,
+            email: "$_id",
+            name: { $ifNull: ["$user.name", "Volunteer"] },
+            image: { $ifNull: ["$user.image", ""] },
             volunteerHours: 1,
-            completedEvents: 1,
+            totalPoints: 1,
+            totalEvents: 1,
           },
         },
       ])
       .toArray();
+
+    console.log("Leaderboard Users:", leaderboard.length);
 
     return res.status(200).json({
       success: true,
       leaderboard,
     });
   } catch (error) {
-    console.error("Leaderboard error:", error);
+    console.error("❌ Leaderboard error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load leaderboard",
@@ -814,10 +970,13 @@ app.get("/api/impact/leaderboard", async (req, res) => {
   }
 });
 
-// Get Certificates of Logged-in User
+// ================= MY CERTIFICATES =================
+
 app.get("/api/certificates/me", verifyToken, async (req, res) => {
+  console.log("🎓 MY CERTIFICATES API HIT");
+
   try {
-    const userEmail = req.user.email?.trim().toLowerCase();
+    const userEmail = normalizeEmail(req.user.email);
 
     if (!userEmail) {
       return res.status(401).json({
@@ -834,13 +993,16 @@ app.get("/api/certificates/me", verifyToken, async (req, res) => {
       .sort({ issuedAt: -1 })
       .toArray();
 
+    console.log("Certificates Found:", certificates.length);
+
     return res.status(200).json({
       success: true,
       count: certificates.length,
       certificates,
     });
   } catch (error) {
-    console.error("Certificates list error:", error);
+    console.error("❌ Certificates error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load certificates",
@@ -848,11 +1010,14 @@ app.get("/api/certificates/me", verifyToken, async (req, res) => {
   }
 });
 
-// Download a Certificate as PDF (owner only)
+// ================= DOWNLOAD CERTIFICATE =================
+
 app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
+  console.log("📄 DOWNLOAD CERTIFICATE API HIT");
+
   try {
     const { id } = req.params;
-    const userEmail = req.user.email?.trim().toLowerCase();
+    const userEmail = normalizeEmail(req.user.email);
 
     if (!userEmail) {
       return res.status(401).json({
@@ -875,130 +1040,89 @@ app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
       });
     }
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="ShobaiMile-Certificate-${id}.pdf"`,
-    );
-
     const doc = new PDFDocument({
       size: "A4",
       layout: "landscape",
       margin: 50,
     });
 
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="certificate-${id}.pdf"`,
+    );
+
     doc.pipe(res);
 
-    const pageWidth = doc.page.width;
-
-    doc
-      .rect(20, 20, pageWidth - 40, doc.page.height - 40)
-      .lineWidth(3)
-      .stroke("#16A34A");
+    doc.fontSize(32).text("CERTIFICATE OF PARTICIPATION", {
+      align: "center",
+    });
 
     doc.moveDown(2);
 
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(30)
-      .fillColor("#15803D")
-      .text("SHOBAIMILE", { align: "center" });
+    doc.fontSize(18).text("This certificate is proudly presented to", {
+      align: "center",
+    });
 
-    doc.moveDown(1);
+    doc.moveDown();
 
-    doc
-      .fontSize(25)
-      .fillColor("#1F2937")
-      .text("CERTIFICATE OF VOLUNTEER PARTICIPATION", {
-        align: "center",
-      });
+    doc.fontSize(28).text(certificate.volunteerName || "Volunteer", {
+      align: "center",
+    });
 
-    doc.moveDown(1.5);
+    doc.moveDown();
 
     doc
-      .font("Helvetica")
       .fontSize(16)
-      .fillColor("#374151")
-      .text("This certificate is proudly presented to", {
-        align: "center",
-      });
+      .text(
+        `For participating in ${certificate.eventTitle || "a volunteer event"}`,
+        { align: "center" },
+      );
 
-    doc.moveDown(0.5);
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(28)
-      .fillColor("#111827")
-      .text(certificate.volunteerName, { align: "center" });
-
-    doc.moveDown(0.8);
+    doc.moveDown();
 
     doc
-      .font("Helvetica")
-      .fontSize(15)
-      .fillColor("#374151")
-      .text("For their valuable contribution as a volunteer at", {
-        align: "center",
-      });
-
-    doc.moveDown(0.5);
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(21)
-      .fillColor("#15803D")
-      .text(certificate.eventTitle, { align: "center" });
-
-    doc.moveDown(0.8);
-
-    doc
-      .font("Helvetica")
       .fontSize(14)
-      .fillColor("#374151")
-      .text(`Volunteer hours: ${certificate.volunteerHours}`, {
+      .text(`Volunteer Hours: ${certificate.volunteerHours || 0}`, {
         align: "center",
       });
 
-    doc.moveDown(0.5);
-
-    doc.text(
-      `Event date: ${new Date(certificate.eventDate).toLocaleDateString("en-GB")}`,
-      { align: "center" },
-    );
-
-    doc.moveDown(1.5);
+    doc.moveDown();
 
     doc
-      .fontSize(10)
-      .fillColor("#6B7280")
+      .fontSize(12)
       .text(`Certificate ID: ${certificate.certificateId}`, {
         align: "center",
       });
 
-    doc.moveDown(0.5);
+    doc.moveDown();
 
-    doc.text(
-      `Issued: ${new Date(certificate.issuedAt).toLocaleDateString("en-GB")}`,
-      { align: "center" },
-    );
+    doc
+      .fontSize(12)
+      .text(`Issued: ${new Date(certificate.issuedAt).toLocaleDateString()}`, {
+        align: "center",
+      });
 
     doc.end();
+
+    console.log("✅ Certificate PDF generated:", id);
   } catch (error) {
-    console.error("Certificate PDF error:", error);
+    console.error("❌ Certificate download error:", error);
 
     if (!res.headersSent) {
       return res.status(500).json({
         success: false,
-        message: "Failed to generate certificate PDF",
+        message: "Failed to download certificate",
       });
     }
-
-    res.end();
   }
 });
 
-// Get All Upcoming Events
+// ================= ALL EVENTS =================
+
 app.get("/api/events", async (req, res) => {
+  console.log("📋 ALL EVENTS API HIT");
+
   try {
     const db = getDB();
 
@@ -1008,13 +1132,16 @@ app.get("/api/events", async (req, res) => {
       .sort({ eventDate: 1 })
       .toArray();
 
+    console.log("Events Found:", events.length);
+
     return res.status(200).json({
       success: true,
       count: events.length,
       events,
     });
   } catch (error) {
-    console.error("Get events error:", error);
+    console.error("❌ All events error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load events",
@@ -1022,8 +1149,11 @@ app.get("/api/events", async (req, res) => {
   }
 });
 
-// Get Single Event Details
+// ================= SINGLE EVENT =================
+
 app.get("/api/events/:id", async (req, res) => {
+  console.log("🔎 SINGLE EVENT API HIT");
+
   try {
     const { id } = req.params;
 
@@ -1047,23 +1177,195 @@ app.get("/api/events/:id", async (req, res) => {
       });
     }
 
+    const creator = await db.collection("user").findOne(
+      { email: event.creatorEmail },
+      {
+        projection: {
+          name: 1,
+          email: 1,
+          image: 1,
+        },
+      },
+    );
+
     return res.status(200).json({
       success: true,
-      event,
+      event: {
+        ...event,
+        creator: creator || null,
+      },
     });
   } catch (error) {
-    console.error("Get event details error:", error);
+    console.error("❌ Single event error:", error);
+
     return res.status(500).json({
       success: false,
-      message: "Failed to load event details",
+      message: "Failed to load event",
     });
   }
 });
 
-// Start Server
+// ================= MY PROFILE =================
+
+app.get("/api/profile/me", verifyToken, async (req, res) => {
+  console.log("👤 MY PROFILE API HIT");
+
+  try {
+    const userEmail = normalizeEmail(req.user.email);
+
+    if (!userEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+    }
+
+    const db = getDB();
+
+    const user = await db.collection("user").findOne(
+      { email: userEmail },
+      {
+        projection: {
+          name: 1,
+          email: 1,
+          image: 1,
+        },
+      },
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User profile not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user,
+    });
+  } catch (error) {
+    console.error("❌ Profile error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load profile",
+    });
+  }
+});
+
+// ================= UPDATE PROFILE =================
+
+app.patch("/api/profile/me", verifyToken, async (req, res) => {
+  console.log("✏️ UPDATE PROFILE API HIT");
+
+  try {
+    const userEmail = normalizeEmail(req.user.email);
+    const { name, image } = req.body;
+
+    if (!userEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+    }
+
+    const updateData = {};
+
+    if (name !== undefined) {
+      if (typeof name !== "string" || name.trim().length < 2) {
+        return res.status(400).json({
+          success: false,
+          message: "Name must contain at least 2 characters",
+        });
+      }
+
+      updateData.name = name.trim();
+    }
+
+    if (image !== undefined) {
+      if (typeof image !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid image URL",
+        });
+      }
+
+      try {
+        const imageURL = new URL(image.trim());
+
+        if (!["http:", "https:"].includes(imageURL.protocol)) {
+          throw new Error("Invalid protocol");
+        }
+
+        updateData.image = image.trim();
+      } catch {
+        return res.status(400).json({
+          success: false,
+          message: "Please provide a valid image URL",
+        });
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No profile information provided",
+      });
+    }
+
+    updateData.updatedAt = new Date();
+
+    const db = getDB();
+
+    const result = await db
+      .collection("user")
+      .updateOne({ email: userEmail }, { $set: updateData });
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User profile not found",
+      });
+    }
+
+    const updatedUser = await db.collection("user").findOne(
+      { email: userEmail },
+      {
+        projection: {
+          name: 1,
+          email: 1,
+          image: 1,
+        },
+      },
+    );
+
+    console.log("✅ Profile Updated:", userEmail);
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      user: updatedUser,
+    });
+  } catch (error) {
+    console.error("❌ Update profile error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update profile",
+    });
+  }
+});
+
+// ================= START SERVER =================
+
 async function startServer() {
   try {
+    console.log("🔄 Connecting to MongoDB...");
+
     await connectDB();
+
+    console.log("✅ MongoDB Connected Successfully");
 
     const db = getDB();
 
@@ -1083,11 +1385,19 @@ async function startServer() {
       .collection("certificates")
       .createIndex({ eventId: 1, userEmail: 1 }, { unique: true });
 
+    console.log("✅ MongoDB Indexes Created");
+
     app.listen(PORT, () => {
-      console.log(`ShobaiMile API running on port ${PORT}`);
+      console.log("====================================");
+      console.log("🚀 ShobaiMile API Started");
+      console.log(`🌐 Backend: http://localhost:${PORT}`);
+      console.log(
+        `💻 Frontend: ${process.env.FRONTEND_URL || "http://localhost:3000"}`,
+      );
+      console.log("====================================");
     });
   } catch (error) {
-    console.error("Server startup failed:", error);
+    console.error("❌ Server startup failed:", error);
     process.exit(1);
   }
 }
