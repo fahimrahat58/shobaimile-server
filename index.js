@@ -25,32 +25,6 @@ app.use(
 
 app.use(express.json());
 
-// ================= GLOBAL DEBUG LOGGER =================
-
-app.use((req, res, next) => {
-  console.log("\n========================================");
-  console.log("🌐 INCOMING REQUEST");
-  console.log("Method:", req.method);
-  console.log("URL:", req.originalUrl);
-  console.log("Time:", new Date().toLocaleString("en-BD"));
-  console.log(
-    "Authorization:",
-    req.headers.authorization ? "✅ Bearer token present" : "❌ No token",
-  );
-
-  if (Object.keys(req.body || {}).length > 0) {
-    console.log("Request Body:", req.body);
-  }
-
-  res.on("finish", () => {
-    console.log("Response Status:", res.statusCode);
-    console.log("Completed:", req.method, req.originalUrl);
-    console.log("========================================\n");
-  });
-
-  next();
-});
-
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -191,8 +165,6 @@ const prepareEventData = (data) => ({
 // ================= HEALTH CHECK =================
 
 app.get("/", (req, res) => {
-  console.log("🏠 HEALTH CHECK API HIT");
-
   return res.status(200).json({
     success: true,
     message: "ShobaiMile API is running!",
@@ -202,9 +174,6 @@ app.get("/", (req, res) => {
 // ================= PROTECTED TEST =================
 
 app.get("/api/protected", verifyToken, (req, res) => {
-  console.log("🔐 PROTECTED ROUTE HIT");
-  console.log("Authenticated User:", req.user.email);
-
   return res.status(200).json({
     success: true,
     message: "You are authenticated!",
@@ -215,8 +184,6 @@ app.get("/api/protected", verifyToken, (req, res) => {
 // ================= UPCOMING EVENTS =================
 
 app.get("/api/events/upcoming", async (req, res) => {
-  console.log("📅 UPCOMING EVENTS API HIT");
-
   try {
     const db = getDB();
 
@@ -227,16 +194,12 @@ app.get("/api/events/upcoming", async (req, res) => {
       .limit(6)
       .toArray();
 
-    console.log("✅ Upcoming Events Found:", events.length);
-
     return res.status(200).json({
       success: true,
       count: events.length,
       events,
     });
   } catch (error) {
-    console.error("❌ Upcoming events error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load upcoming events",
@@ -247,12 +210,8 @@ app.get("/api/events/upcoming", async (req, res) => {
 // ================= CREATE EVENT =================
 
 app.post("/api/events", verifyToken, async (req, res) => {
-  console.log("➕ CREATE EVENT API HIT");
-
   try {
     const creatorEmail = normalizeEmail(req.user.email);
-
-    console.log("Logged-in User:", creatorEmail);
 
     if (!creatorEmail) {
       return res.status(401).json({
@@ -264,8 +223,6 @@ app.post("/api/events", verifyToken, async (req, res) => {
     const validationError = validateEventData(req.body);
 
     if (validationError) {
-      console.log("❌ Validation Error:", validationError);
-
       return res.status(400).json({
         success: false,
         message: validationError,
@@ -280,11 +237,7 @@ app.post("/api/events", verifyToken, async (req, res) => {
 
     const db = getDB();
 
-    console.log("🔄 Inserting event into MongoDB...");
-
     const result = await db.collection("events").insertOne(newEvent);
-
-    console.log("✅ Event Created:", result.insertedId);
 
     return res.status(201).json({
       success: true,
@@ -295,8 +248,6 @@ app.post("/api/events", verifyToken, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Create event error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to create event",
@@ -307,8 +258,6 @@ app.post("/api/events", verifyToken, async (req, res) => {
 // ================= MY EVENTS =================
 
 app.get("/api/events/my-events", verifyToken, async (req, res) => {
-  console.log("📌 MY EVENTS API HIT");
-
   try {
     const creatorEmail = normalizeEmail(req.user.email);
 
@@ -327,16 +276,12 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
       .sort({ createdAt: -1 })
       .toArray();
 
-    console.log("✅ Events Found:", events.length);
-
     return res.status(200).json({
       success: true,
       count: events.length,
       events,
     });
   } catch (error) {
-    console.error("❌ My events error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load your events",
@@ -347,8 +292,6 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
 // ================= UPDATE EVENT =================
 
 app.patch("/api/events/:id", verifyToken, async (req, res) => {
-  console.log("✏️ UPDATE EVENT API HIT");
-
   try {
     const { id } = req.params;
 
@@ -392,9 +335,6 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
       },
     );
 
-    console.log("Matched:", result.matchedCount);
-    console.log("Modified:", result.modifiedCount);
-
     if (result.matchedCount === 0) {
       return res.status(404).json({
         success: false,
@@ -407,8 +347,6 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
       message: "Event updated successfully",
     });
   } catch (error) {
-    console.error("❌ Update event error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to update event",
@@ -419,8 +357,6 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
 // ================= DELETE EVENT =================
 
 app.delete("/api/events/:id", verifyToken, async (req, res) => {
-  console.log("🗑️ DELETE EVENT API HIT");
-
   try {
     const { id } = req.params;
 
@@ -447,8 +383,6 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
       creatorEmail,
     });
 
-    console.log("Deleted Count:", result.deletedCount);
-
     if (result.deletedCount === 0) {
       return res.status(404).json({
         success: false,
@@ -461,8 +395,6 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
       message: "Event deleted successfully",
     });
   } catch (error) {
-    console.error("❌ Delete event error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to delete event",
@@ -473,8 +405,6 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
 // ================= JOIN EVENT =================
 
 app.post("/api/events/:id/join", verifyToken, async (req, res) => {
-  console.log("🤝 JOIN EVENT API HIT");
-
   try {
     const { id } = req.params;
     const userEmail = normalizeEmail(req.user.email);
@@ -526,15 +456,11 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
       joinedAt: new Date(),
     });
 
-    console.log("✅ User joined event successfully");
-
     return res.status(201).json({
       success: true,
       message: "You joined the event successfully",
     });
   } catch (error) {
-    console.error("❌ Join event error:", error);
-
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -552,8 +478,6 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
 // ================= EVENT PARTICIPANTS =================
 
 app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
-  console.log("👥 PARTICIPANTS API HIT");
-
   try {
     const { id } = req.params;
     const organizerEmail = normalizeEmail(req.user.email);
@@ -620,16 +544,12 @@ app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
       }),
     );
 
-    console.log("Participants Found:", participants.length);
-
     return res.status(200).json({
       success: true,
       eventTitle: event.title,
       participants,
     });
   } catch (error) {
-    console.error("❌ Participants error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load participants",
@@ -640,8 +560,6 @@ app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
 // ================= JOINED EVENTS =================
 
 app.get("/api/events/joined", verifyToken, async (req, res) => {
-  console.log("📚 JOINED EVENTS API HIT");
-
   try {
     const userEmail = normalizeEmail(req.user.email);
 
@@ -678,16 +596,12 @@ app.get("/api/events/joined", verifyToken, async (req, res) => {
       ])
       .toArray();
 
-    console.log("Joined Events Found:", joinedEvents.length);
-
     return res.status(200).json({
       success: true,
       count: joinedEvents.length,
       events: joinedEvents,
     });
   } catch (error) {
-    console.error("❌ Joined events error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load joined events",
@@ -701,8 +615,6 @@ app.post(
   "/api/events/:id/verify-participant",
   verifyToken,
   async (req, res) => {
-    console.log("✅ VERIFY PARTICIPANT API HIT");
-
     try {
       const { id } = req.params;
       const organizerEmail = normalizeEmail(req.user.email);
@@ -787,7 +699,6 @@ app.post(
 
       const volunteerName = volunteer?.name || "Volunteer";
 
-      // Points calculation
       const participationPoints = 10;
       const hourPoints = Math.round(hours * 10);
       const bonusPoints = 5;
@@ -823,10 +734,6 @@ app.post(
         issuedAt: new Date(),
       });
 
-      console.log("✅ Participant verified:", participantEmail);
-      console.log("Total Points:", totalPoints);
-      console.log("Certificate ID:", certificateId);
-
       return res.status(200).json({
         success: true,
         message: "Participant verified successfully",
@@ -834,8 +741,6 @@ app.post(
         certificateId,
       });
     } catch (error) {
-      console.error("❌ Verify participant error:", error);
-
       if (error.code === 11000) {
         return res.status(409).json({
           success: false,
@@ -854,8 +759,6 @@ app.post(
 // ================= MY IMPACT =================
 
 app.get("/api/impact/me", verifyToken, async (req, res) => {
-  console.log("🌱 MY IMPACT API HIT");
-
   try {
     const userEmail = normalizeEmail(req.user.email);
 
@@ -884,10 +787,6 @@ app.get("/api/impact/me", verifyToken, async (req, res) => {
       0,
     );
 
-    console.log("Impact Records:", records.length);
-    console.log("Total Hours:", totalHours);
-    console.log("Total Points:", totalPoints);
-
     return res.status(200).json({
       success: true,
       totalEvents: records.length,
@@ -896,8 +795,6 @@ app.get("/api/impact/me", verifyToken, async (req, res) => {
       records,
     });
   } catch (error) {
-    console.error("❌ My impact error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load impact data",
@@ -908,8 +805,6 @@ app.get("/api/impact/me", verifyToken, async (req, res) => {
 // ================= IMPACT LEADERBOARD =================
 
 app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
-  console.log("🏆 LEADERBOARD API HIT");
-
   try {
     const db = getDB();
 
@@ -954,15 +849,11 @@ app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
       ])
       .toArray();
 
-    console.log("Leaderboard Users:", leaderboard.length);
-
     return res.status(200).json({
       success: true,
       leaderboard,
     });
   } catch (error) {
-    console.error("❌ Leaderboard error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load leaderboard",
@@ -973,8 +864,6 @@ app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
 // ================= MY CERTIFICATES =================
 
 app.get("/api/certificates/me", verifyToken, async (req, res) => {
-  console.log("🎓 MY CERTIFICATES API HIT");
-
   try {
     const userEmail = normalizeEmail(req.user.email);
 
@@ -993,16 +882,12 @@ app.get("/api/certificates/me", verifyToken, async (req, res) => {
       .sort({ issuedAt: -1 })
       .toArray();
 
-    console.log("Certificates Found:", certificates.length);
-
     return res.status(200).json({
       success: true,
       count: certificates.length,
       certificates,
     });
   } catch (error) {
-    console.error("❌ Certificates error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load certificates",
@@ -1013,8 +898,6 @@ app.get("/api/certificates/me", verifyToken, async (req, res) => {
 // ================= DOWNLOAD CERTIFICATE =================
 
 app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
-  console.log("📄 DOWNLOAD CERTIFICATE API HIT");
-
   try {
     const { id } = req.params;
     const userEmail = normalizeEmail(req.user.email);
@@ -1089,11 +972,9 @@ app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
 
     doc.moveDown();
 
-    doc
-      .fontSize(12)
-      .text(`Certificate ID: ${certificate.certificateId}`, {
-        align: "center",
-      });
+    doc.fontSize(12).text(`Certificate ID: ${certificate.certificateId}`, {
+      align: "center",
+    });
 
     doc.moveDown();
 
@@ -1104,11 +985,7 @@ app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
       });
 
     doc.end();
-
-    console.log("✅ Certificate PDF generated:", id);
   } catch (error) {
-    console.error("❌ Certificate download error:", error);
-
     if (!res.headersSent) {
       return res.status(500).json({
         success: false,
@@ -1121,8 +998,6 @@ app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
 // ================= ALL EVENTS =================
 
 app.get("/api/events", async (req, res) => {
-  console.log("📋 ALL EVENTS API HIT");
-
   try {
     const db = getDB();
 
@@ -1132,16 +1007,12 @@ app.get("/api/events", async (req, res) => {
       .sort({ eventDate: 1 })
       .toArray();
 
-    console.log("Events Found:", events.length);
-
     return res.status(200).json({
       success: true,
       count: events.length,
       events,
     });
   } catch (error) {
-    console.error("❌ All events error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load events",
@@ -1152,8 +1023,6 @@ app.get("/api/events", async (req, res) => {
 // ================= SINGLE EVENT =================
 
 app.get("/api/events/:id", async (req, res) => {
-  console.log("🔎 SINGLE EVENT API HIT");
-
   try {
     const { id } = req.params;
 
@@ -1196,8 +1065,6 @@ app.get("/api/events/:id", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Single event error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load event",
@@ -1208,8 +1075,6 @@ app.get("/api/events/:id", async (req, res) => {
 // ================= MY PROFILE =================
 
 app.get("/api/profile/me", verifyToken, async (req, res) => {
-  console.log("👤 MY PROFILE API HIT");
-
   try {
     const userEmail = normalizeEmail(req.user.email);
 
@@ -1245,8 +1110,6 @@ app.get("/api/profile/me", verifyToken, async (req, res) => {
       user,
     });
   } catch (error) {
-    console.error("❌ Profile error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to load profile",
@@ -1257,8 +1120,6 @@ app.get("/api/profile/me", verifyToken, async (req, res) => {
 // ================= UPDATE PROFILE =================
 
 app.patch("/api/profile/me", verifyToken, async (req, res) => {
-  console.log("✏️ UPDATE PROFILE API HIT");
-
   try {
     const userEmail = normalizeEmail(req.user.email);
     const { name, image } = req.body;
@@ -1340,16 +1201,12 @@ app.patch("/api/profile/me", verifyToken, async (req, res) => {
       },
     );
 
-    console.log("✅ Profile Updated:", userEmail);
-
     return res.status(200).json({
       success: true,
       message: "Profile updated successfully",
       user: updatedUser,
     });
   } catch (error) {
-    console.error("❌ Update profile error:", error);
-
     return res.status(500).json({
       success: false,
       message: "Failed to update profile",
@@ -1361,11 +1218,7 @@ app.patch("/api/profile/me", verifyToken, async (req, res) => {
 
 async function startServer() {
   try {
-    console.log("🔄 Connecting to MongoDB...");
-
     await connectDB();
-
-    console.log("✅ MongoDB Connected Successfully");
 
     const db = getDB();
 
@@ -1385,19 +1238,8 @@ async function startServer() {
       .collection("certificates")
       .createIndex({ eventId: 1, userEmail: 1 }, { unique: true });
 
-    console.log("✅ MongoDB Indexes Created");
-
-    app.listen(PORT, () => {
-      console.log("====================================");
-      console.log("🚀 ShobaiMile API Started");
-      console.log(`🌐 Backend: http://localhost:${PORT}`);
-      console.log(
-        `💻 Frontend: ${process.env.FRONTEND_URL || "http://localhost:3000"}`,
-      );
-      console.log("====================================");
-    });
+    app.listen(PORT);
   } catch (error) {
-    console.error("❌ Server startup failed:", error);
     process.exit(1);
   }
 }
