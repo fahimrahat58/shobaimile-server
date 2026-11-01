@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-//  MIDDLEWARE 
+//  MIDDLEWARE
 
 app.use(helmet());
 
@@ -32,7 +32,7 @@ app.use(
   }),
 );
 
-//  CONSTANTS 
+//  CONSTANTS
 
 const allowedCategories = [
   "Cleanup",
@@ -44,7 +44,6 @@ const allowedCategories = [
   "Other",
 ];
 
-
 const getTodayBD = () =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Dhaka",
@@ -53,13 +52,11 @@ const getTodayBD = () =>
     day: "2-digit",
   }).format(new Date());
 
-
-const getTodayBDAsUTC = () =>
-  new Date(`${getTodayBD()}T00:00:00.000Z`);
+const getTodayBDAsUTC = () => new Date(`${getTodayBD()}T00:00:00.000Z`);
 
 const normalizeEmail = (email) => email?.trim().toLowerCase();
 
-//  VALIDATION 
+//  VALIDATION
 
 const validateEventData = (data) => {
   const {
@@ -176,7 +173,7 @@ app.get("/", (req, res) => {
   });
 });
 
-// PROTECTED TEST 
+// PROTECTED TEST
 
 app.get("/api/protected", verifyToken, (req, res) => {
   return res.status(200).json({
@@ -186,7 +183,7 @@ app.get("/api/protected", verifyToken, (req, res) => {
   });
 });
 
-// UPCOMING EVENTS 
+// UPCOMING EVENTS
 
 app.get("/api/events/upcoming", async (req, res) => {
   try {
@@ -214,7 +211,7 @@ app.get("/api/events/upcoming", async (req, res) => {
   }
 });
 
-// CREATE EVENT 
+// CREATE EVENT
 
 app.post("/api/events", verifyToken, async (req, res) => {
   try {
@@ -264,7 +261,7 @@ app.post("/api/events", verifyToken, async (req, res) => {
   }
 });
 
-//  MY EVENTS 
+//  MY EVENTS
 app.get("/api/events/my-events", verifyToken, async (req, res) => {
   try {
     const creatorEmail = normalizeEmail(req.user.email);
@@ -299,7 +296,7 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
   }
 });
 
-//  UPDATE EVENT 
+//  UPDATE EVENT
 
 app.patch("/api/events/:id", verifyToken, async (req, res) => {
   try {
@@ -366,7 +363,7 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
   }
 });
 
-// DELETE EVENT 
+// DELETE EVENT
 
 app.delete("/api/events/:id", verifyToken, async (req, res) => {
   try {
@@ -416,7 +413,7 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
   }
 });
 
-// JOIN EVENT 
+// JOIN EVENT
 
 app.post("/api/events/:id/join", verifyToken, async (req, res) => {
   try {
@@ -439,7 +436,6 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
 
     const db = getDB();
     const eventId = new ObjectId(id);
-
 
     const event = await db.collection("events").findOne({
       _id: eventId,
@@ -583,7 +579,7 @@ app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
   }
 });
 
-// JOINED EVENTS 
+// JOINED EVENTS
 
 app.get("/api/events/joined", verifyToken, async (req, res) => {
   try {
@@ -637,7 +633,7 @@ app.get("/api/events/joined", verifyToken, async (req, res) => {
   }
 });
 
-//  VERIFY PARTICIPANT 
+//  VERIFY PARTICIPANT
 
 app.post(
   "/api/events/:id/verify-participant",
@@ -686,7 +682,6 @@ app.post(
           message: "Event not found or you are not the organizer",
         });
       }
-
 
       if (new Date(event.eventDate) >= getTodayBDAsUTC()) {
         return res.status(400).json({
@@ -787,7 +782,7 @@ app.post(
   },
 );
 
-// MY IMPACT 
+// MY IMPACT
 
 app.get("/api/impact/me", verifyToken, async (req, res) => {
   try {
@@ -896,7 +891,7 @@ app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
   }
 });
 
-// MY CERTIFICATES 
+// MY CERTIFICATES
 
 app.get("/api/certificates/me", verifyToken, async (req, res) => {
   try {
@@ -1034,7 +1029,7 @@ app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
   }
 });
 
-//  ALL EVENTS 
+//  ALL EVENTS
 app.get("/api/events", async (req, res) => {
   try {
     const db = getDB();
@@ -1060,7 +1055,7 @@ app.get("/api/events", async (req, res) => {
   }
 });
 
-//  SINGLE EVENT 
+//  SINGLE EVENT
 
 app.get("/api/events/:id", async (req, res) => {
   try {
@@ -1114,7 +1109,7 @@ app.get("/api/events/:id", async (req, res) => {
   }
 });
 
-// MY PROFILE 
+// MY PROFILE
 
 app.get("/api/profile/me", verifyToken, async (req, res) => {
   try {
@@ -1161,7 +1156,7 @@ app.get("/api/profile/me", verifyToken, async (req, res) => {
   }
 });
 
-// UPDATE PROFILE 
+// UPDATE PROFILE
 
 app.patch("/api/profile/me", verifyToken, async (req, res) => {
   try {
@@ -1260,7 +1255,7 @@ app.patch("/api/profile/me", verifyToken, async (req, res) => {
   }
 });
 
-//  START SERVER 
+//  START SERVER
 
 async function startServer() {
   try {
