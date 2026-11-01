@@ -56,6 +56,22 @@ const getTodayBDAsUTC = () => new Date(`${getTodayBD()}T00:00:00.000Z`);
 
 const normalizeEmail = (email) => email?.trim().toLowerCase();
 
+// GET EVENT VOLUNTEER COUNT
+const addParticipantsCount = async (db, events) => {
+  return Promise.all(
+    events.map(async (event) => {
+      const participantsCount = await db
+        .collection("eventParticipants")
+        .countDocuments({ eventId: event._id });
+
+      return {
+        ...event,
+        participantsCount,
+      };
+    }),
+  );
+};
+
 //  VALIDATION
 
 const validateEventData = (data) => {
