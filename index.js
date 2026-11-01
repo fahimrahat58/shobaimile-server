@@ -268,6 +268,35 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
   }
 });
 
+// PAST EVENTS
+
+app.get("/api/events/past", async (req, res) => {
+  try {
+    const db = getDB();
+
+    const events = await db
+      .collection("events")
+      .find({ eventDate: { $lt: getTodayBDAsUTC() } })
+      .sort({ eventDate: -1 })
+      .toArray();
+
+    const eventsWithCount = await addParticipantsCount(db, events);
+
+    return res.status(200).json({
+      success: true,
+      count: eventsWithCount.length,
+      events: eventsWithCount,
+    });
+  } catch (error) {
+    console.error("Past Events Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load past events",
+    });
+  }
+});
+
 // ALL EVENTS
 
 app.get("/api/events", async (req, res) => {
