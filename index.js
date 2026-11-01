@@ -297,66 +297,6 @@ app.get("/api/events", async (req, res) => {
   }
 });
 
-// SINGLE EVENT
-
-app.get("/api/events/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid event ID",
-      });
-    }
-
-    const db = getDB();
-    const eventId = new ObjectId(id);
-
-    const event = await db.collection("events").findOne({
-      _id: eventId,
-    });
-
-    if (!event) {
-      return res.status(404).json({
-        success: false,
-        message: "Event not found",
-      });
-    }
-
-    const creator = await db.collection("user").findOne(
-      { email: event.creatorEmail },
-      {
-        projection: {
-          name: 1,
-          email: 1,
-          image: 1,
-        },
-      },
-    );
-
-    const participantsCount = await db
-      .collection("eventParticipants")
-      .countDocuments({ eventId });
-
-    return res.status(200).json({
-      success: true,
-      event: {
-        ...event,
-        participantsCount,
-        creator: creator || null,
-      },
-    });
-  } catch (error) {
-    console.error("Single Event Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to load event",
-    });
-  }
-});
-
 // CREATE EVENT
 
 app.post("/api/events", verifyToken, async (req, res) => {
@@ -601,6 +541,66 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to join event",
+    });
+  }
+});
+
+// SINGLE EVENT
+
+app.get("/api/events/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID",
+      });
+    }
+
+    const db = getDB();
+    const eventId = new ObjectId(id);
+
+    const event = await db.collection("events").findOne({
+      _id: eventId,
+    });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found",
+      });
+    }
+
+    const creator = await db.collection("user").findOne(
+      { email: event.creatorEmail },
+      {
+        projection: {
+          name: 1,
+          email: 1,
+          image: 1,
+        },
+      },
+    );
+
+    const participantsCount = await db
+      .collection("eventParticipants")
+      .countDocuments({ eventId });
+
+    return res.status(200).json({
+      success: true,
+      event: {
+        ...event,
+        participantsCount,
+        creator: creator || null,
+      },
+    });
+  } catch (error) {
+    console.error("Single Event Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load event",
     });
   }
 });
