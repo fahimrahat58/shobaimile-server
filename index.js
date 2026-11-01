@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ================= MIDDLEWARE =================
+//  MIDDLEWARE 
 
 app.use(helmet());
 
@@ -32,7 +32,7 @@ app.use(
   }),
 );
 
-// ================= CONSTANTS =================
+//  CONSTANTS 
 
 const allowedCategories = [
   "Cleanup",
@@ -44,6 +44,7 @@ const allowedCategories = [
   "Other",
 ];
 
+
 const getTodayBD = () =>
   new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Dhaka",
@@ -52,9 +53,13 @@ const getTodayBD = () =>
     day: "2-digit",
   }).format(new Date());
 
+
+const getTodayBDAsUTC = () =>
+  new Date(`${getTodayBD()}T00:00:00.000Z`);
+
 const normalizeEmail = (email) => email?.trim().toLowerCase();
 
-// ================= VALIDATION =================
+//  VALIDATION 
 
 const validateEventData = (data) => {
   const {
@@ -162,7 +167,7 @@ const prepareEventData = (data) => ({
   volunteerGuidelines: data.volunteerGuidelines.map((item) => item.trim()),
 });
 
-// ================= HEALTH CHECK =================
+// HEALTH CHECK
 
 app.get("/", (req, res) => {
   return res.status(200).json({
@@ -171,7 +176,7 @@ app.get("/", (req, res) => {
   });
 });
 
-// ================= PROTECTED TEST =================
+// PROTECTED TEST 
 
 app.get("/api/protected", verifyToken, (req, res) => {
   return res.status(200).json({
@@ -181,7 +186,7 @@ app.get("/api/protected", verifyToken, (req, res) => {
   });
 });
 
-// ================= UPCOMING EVENTS =================
+// UPCOMING EVENTS 
 
 app.get("/api/events/upcoming", async (req, res) => {
   try {
@@ -189,7 +194,7 @@ app.get("/api/events/upcoming", async (req, res) => {
 
     const events = await db
       .collection("events")
-      .find({ eventDate: { $gte: new Date() } })
+      .find({ eventDate: { $gte: getTodayBDAsUTC() } })
       .sort({ eventDate: 1 })
       .limit(6)
       .toArray();
@@ -200,6 +205,8 @@ app.get("/api/events/upcoming", async (req, res) => {
       events,
     });
   } catch (error) {
+    console.error("Upcoming Events Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load upcoming events",
@@ -207,7 +214,7 @@ app.get("/api/events/upcoming", async (req, res) => {
   }
 });
 
-// ================= CREATE EVENT =================
+// CREATE EVENT 
 
 app.post("/api/events", verifyToken, async (req, res) => {
   try {
@@ -248,6 +255,8 @@ app.post("/api/events", verifyToken, async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Create Event Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to create event",
@@ -255,8 +264,7 @@ app.post("/api/events", verifyToken, async (req, res) => {
   }
 });
 
-// ================= MY EVENTS =================
-
+//  MY EVENTS 
 app.get("/api/events/my-events", verifyToken, async (req, res) => {
   try {
     const creatorEmail = normalizeEmail(req.user.email);
@@ -282,6 +290,8 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
       events,
     });
   } catch (error) {
+    console.error("My Events Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load your events",
@@ -289,7 +299,7 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
   }
 });
 
-// ================= UPDATE EVENT =================
+//  UPDATE EVENT 
 
 app.patch("/api/events/:id", verifyToken, async (req, res) => {
   try {
@@ -347,6 +357,8 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
       message: "Event updated successfully",
     });
   } catch (error) {
+    console.error("Update Event Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to update event",
@@ -354,7 +366,7 @@ app.patch("/api/events/:id", verifyToken, async (req, res) => {
   }
 });
 
-// ================= DELETE EVENT =================
+// DELETE EVENT 
 
 app.delete("/api/events/:id", verifyToken, async (req, res) => {
   try {
@@ -395,6 +407,8 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
       message: "Event deleted successfully",
     });
   } catch (error) {
+    console.error("Delete Event Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to delete event",
@@ -402,7 +416,7 @@ app.delete("/api/events/:id", verifyToken, async (req, res) => {
   }
 });
 
-// ================= JOIN EVENT =================
+// JOIN EVENT 
 
 app.post("/api/events/:id/join", verifyToken, async (req, res) => {
   try {
@@ -426,9 +440,10 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
     const db = getDB();
     const eventId = new ObjectId(id);
 
+
     const event = await db.collection("events").findOne({
       _id: eventId,
-      eventDate: { $gte: new Date() },
+      eventDate: { $gte: getTodayBDAsUTC() },
     });
 
     if (!event) {
@@ -438,6 +453,7 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
       });
     }
 
+    // Prevent duplicate joining.
     const existingJoin = await db.collection("eventParticipants").findOne({
       eventId,
       userEmail,
@@ -450,17 +466,25 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
       });
     }
 
+    // Add volunteer.
     await db.collection("eventParticipants").insertOne({
       eventId,
       userEmail,
       joinedAt: new Date(),
     });
 
+    const participantsCount = await db
+      .collection("eventParticipants")
+      .countDocuments({ eventId });
+
     return res.status(201).json({
       success: true,
       message: "You joined the event successfully",
+      participantsCount,
     });
   } catch (error) {
+    console.error("Join Event Error:", error);
+
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -475,7 +499,7 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
   }
 });
 
-// ================= EVENT PARTICIPANTS =================
+//  EVENT PARTICIPANTS
 
 app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
   try {
@@ -550,6 +574,8 @@ app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
       participants,
     });
   } catch (error) {
+    console.error("Event Participants Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load participants",
@@ -557,7 +583,7 @@ app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
   }
 });
 
-// ================= JOINED EVENTS =================
+// JOINED EVENTS 
 
 app.get("/api/events/joined", verifyToken, async (req, res) => {
   try {
@@ -602,6 +628,8 @@ app.get("/api/events/joined", verifyToken, async (req, res) => {
       events: joinedEvents,
     });
   } catch (error) {
+    console.error("Joined Events Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load joined events",
@@ -609,7 +637,7 @@ app.get("/api/events/joined", verifyToken, async (req, res) => {
   }
 });
 
-// ================= VERIFY PARTICIPANT =================
+//  VERIFY PARTICIPANT 
 
 app.post(
   "/api/events/:id/verify-participant",
@@ -659,10 +687,11 @@ app.post(
         });
       }
 
-      if (new Date(event.eventDate) > new Date()) {
+
+      if (new Date(event.eventDate) >= getTodayBDAsUTC()) {
         return res.status(400).json({
           success: false,
-          message: "You can verify participants after the event ends",
+          message: "You can verify participants after the event date has ended",
         });
       }
 
@@ -741,6 +770,8 @@ app.post(
         certificateId,
       });
     } catch (error) {
+      console.error("Verify Participant Error:", error);
+
       if (error.code === 11000) {
         return res.status(409).json({
           success: false,
@@ -756,7 +787,7 @@ app.post(
   },
 );
 
-// ================= MY IMPACT =================
+// MY IMPACT 
 
 app.get("/api/impact/me", verifyToken, async (req, res) => {
   try {
@@ -795,6 +826,8 @@ app.get("/api/impact/me", verifyToken, async (req, res) => {
       records,
     });
   } catch (error) {
+    console.error("My Impact Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load impact data",
@@ -802,7 +835,7 @@ app.get("/api/impact/me", verifyToken, async (req, res) => {
   }
 });
 
-// ================= IMPACT LEADERBOARD =================
+//  IMPACT LEADERBOARD
 
 app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
   try {
@@ -854,6 +887,8 @@ app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
       leaderboard,
     });
   } catch (error) {
+    console.error("Leaderboard Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load leaderboard",
@@ -861,7 +896,7 @@ app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
   }
 });
 
-// ================= MY CERTIFICATES =================
+// MY CERTIFICATES 
 
 app.get("/api/certificates/me", verifyToken, async (req, res) => {
   try {
@@ -888,6 +923,8 @@ app.get("/api/certificates/me", verifyToken, async (req, res) => {
       certificates,
     });
   } catch (error) {
+    console.error("My Certificates Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load certificates",
@@ -895,7 +932,7 @@ app.get("/api/certificates/me", verifyToken, async (req, res) => {
   }
 });
 
-// ================= DOWNLOAD CERTIFICATE =================
+// DOWNLOAD CERTIFICATE
 
 app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
   try {
@@ -986,6 +1023,8 @@ app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
 
     doc.end();
   } catch (error) {
+    console.error("Download Certificate Error:", error);
+
     if (!res.headersSent) {
       return res.status(500).json({
         success: false,
@@ -995,15 +1034,14 @@ app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
   }
 });
 
-// ================= ALL EVENTS =================
-
+//  ALL EVENTS 
 app.get("/api/events", async (req, res) => {
   try {
     const db = getDB();
 
     const events = await db
       .collection("events")
-      .find({ eventDate: { $gte: new Date() } })
+      .find({ eventDate: { $gte: getTodayBDAsUTC() } })
       .sort({ eventDate: 1 })
       .toArray();
 
@@ -1013,6 +1051,8 @@ app.get("/api/events", async (req, res) => {
       events,
     });
   } catch (error) {
+    console.error("All Events Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load events",
@@ -1020,7 +1060,7 @@ app.get("/api/events", async (req, res) => {
   }
 });
 
-// ================= SINGLE EVENT =================
+//  SINGLE EVENT 
 
 app.get("/api/events/:id", async (req, res) => {
   try {
@@ -1065,6 +1105,8 @@ app.get("/api/events/:id", async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Single Event Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load event",
@@ -1072,7 +1114,7 @@ app.get("/api/events/:id", async (req, res) => {
   }
 });
 
-// ================= MY PROFILE =================
+// MY PROFILE 
 
 app.get("/api/profile/me", verifyToken, async (req, res) => {
   try {
@@ -1110,6 +1152,8 @@ app.get("/api/profile/me", verifyToken, async (req, res) => {
       user,
     });
   } catch (error) {
+    console.error("My Profile Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to load profile",
@@ -1117,7 +1161,7 @@ app.get("/api/profile/me", verifyToken, async (req, res) => {
   }
 });
 
-// ================= UPDATE PROFILE =================
+// UPDATE PROFILE 
 
 app.patch("/api/profile/me", verifyToken, async (req, res) => {
   try {
@@ -1207,6 +1251,8 @@ app.patch("/api/profile/me", verifyToken, async (req, res) => {
       user: updatedUser,
     });
   } catch (error) {
+    console.error("Update Profile Error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to update profile",
@@ -1214,7 +1260,7 @@ app.patch("/api/profile/me", verifyToken, async (req, res) => {
   }
 });
 
-// ================= START SERVER =================
+//  START SERVER 
 
 async function startServer() {
   try {
@@ -1222,24 +1268,31 @@ async function startServer() {
 
     const db = getDB();
 
+    // Prevent duplicate event joining.
     await db
       .collection("eventParticipants")
       .createIndex({ eventId: 1, userEmail: 1 }, { unique: true });
 
+    // Prevent duplicate volunteer verification.
     await db
       .collection("volunteerRecords")
       .createIndex({ eventId: 1, userEmail: 1 }, { unique: true });
 
+    // Unique certificate ID.
     await db
       .collection("certificates")
       .createIndex({ certificateId: 1 }, { unique: true });
 
+    // One certificate per volunteer per event.
     await db
       .collection("certificates")
       .createIndex({ eventId: 1, userEmail: 1 }, { unique: true });
 
-    app.listen(PORT);
+    app.listen(PORT, () => {
+      console.log(`ShobaiMile server running on port ${PORT}`);
+    });
   } catch (error) {
+    console.error("Server startup error:", error);
     process.exit(1);
   }
 }
