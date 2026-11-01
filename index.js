@@ -12,7 +12,24 @@ import { randomUUID } from "node:crypto";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-//  MIDDLEWARE
+// GET EVENT VOLUNTEER COUNT
+
+const addParticipantsCount = async (db, events) => {
+  return Promise.all(
+    events.map(async (event) => {
+      const participantsCount = await db
+        .collection("eventParticipants")
+        .countDocuments({ eventId: event._id });
+
+      return {
+        ...event,
+        participantsCount,
+      };
+    }),
+  );
+};
+
+// MIDDLEWARE
 
 app.use(helmet());
 
@@ -32,7 +49,7 @@ app.use(
   }),
 );
 
-//  CONSTANTS
+// CONSTANTS
 
 const allowedCategories = [
   "Cleanup",
@@ -56,23 +73,7 @@ const getTodayBDAsUTC = () => new Date(`${getTodayBD()}T00:00:00.000Z`);
 
 const normalizeEmail = (email) => email?.trim().toLowerCase();
 
-// GET EVENT VOLUNTEER COUNT
-const addParticipantsCount = async (db, events) => {
-  return Promise.all(
-    events.map(async (event) => {
-      const participantsCount = await db
-        .collection("eventParticipants")
-        .countDocuments({ eventId: event._id });
-
-      return {
-        ...event,
-        participantsCount,
-      };
-    }),
-  );
-};
-
-//  VALIDATION
+// VALIDATION
 
 const validateEventData = (data) => {
   const {
@@ -212,10 +213,12 @@ app.get("/api/events/upcoming", async (req, res) => {
       .limit(6)
       .toArray();
 
+    const eventsWithCount = await addParticipantsCount(db, events);
+
     return res.status(200).json({
       success: true,
-      count: events.length,
-      events,
+      count: eventsWithCount.length,
+      events: eventsWithCount,
     });
   } catch (error) {
     console.error("Upcoming Events Error:", error);
@@ -223,6 +226,133 @@ app.get("/api/events/upcoming", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to load upcoming events",
+    });
+  }
+});
+
+// MY EVENTS
+
+app.get("/api/events/my-events", verifyToken, async (req, res) => {
+  try {
+    const creatorEmail = normalizeEmail(req.user.email);
+
+    if (!creatorEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+    }
+
+    const db = getDB();
+
+    const events = await db
+      .collection("events")
+      .find({ creatorEmail })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const eventsWithCount = await addParticipantsCount(db, events);
+
+    return res.status(200).json({
+      success: true,
+      count: eventsWithCount.length,
+      events: eventsWithCount,
+    });
+  } catch (error) {
+    console.error("My Events Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load your events",
+    });
+  }
+});
+
+// ALL EVENTS
+
+app.get("/api/events", async (req, res) => {
+  try {
+    const db = getDB();
+
+    const events = await db
+      .collection("events")
+      .find({ eventDate: { $gte: getTodayBDAsUTC() } })
+      .sort({ eventDate: 1 })
+      .toArray();
+
+    const eventsWithCount = await addParticipantsCount(db, events);
+
+    return res.status(200).json({
+      success: true,
+      count: eventsWithCount.length,
+      events: eventsWithCount,
+    });
+  } catch (error) {
+    console.error("All Events Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load events",
+    });
+  }
+});
+
+// SINGLE EVENT
+
+app.get("/api/events/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID",
+      });
+    }
+
+    const db = getDB();
+    const eventId = new ObjectId(id);
+
+    const event = await db.collection("events").findOne({
+      _id: eventId,
+    });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found",
+      });
+    }
+
+    const creator = await db.collection("user").findOne(
+      { email: event.creatorEmail },
+      {
+        projection: {
+          name: 1,
+          email: 1,
+          image: 1,
+        },
+      },
+    );
+
+    const participantsCount = await db
+      .collection("eventParticipants")
+      .countDocuments({ eventId });
+
+    return res.status(200).json({
+      success: true,
+      event: {
+        ...event,
+        participantsCount,
+        creator: creator || null,
+      },
+    });
+  } catch (error) {
+    console.error("Single Event Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load event",
     });
   }
 });
@@ -265,6 +395,7 @@ app.post("/api/events", verifyToken, async (req, res) => {
       event: {
         _id: result.insertedId,
         ...newEvent,
+        participantsCount: 0,
       },
     });
   } catch (error) {
@@ -277,42 +408,7 @@ app.post("/api/events", verifyToken, async (req, res) => {
   }
 });
 
-//  MY EVENTS
-app.get("/api/events/my-events", verifyToken, async (req, res) => {
-  try {
-    const creatorEmail = normalizeEmail(req.user.email);
-
-    if (!creatorEmail) {
-      return res.status(401).json({
-        success: false,
-        message: "User email not found",
-      });
-    }
-
-    const db = getDB();
-
-    const events = await db
-      .collection("events")
-      .find({ creatorEmail })
-      .sort({ createdAt: -1 })
-      .toArray();
-
-    return res.status(200).json({
-      success: true,
-      count: events.length,
-      events,
-    });
-  } catch (error) {
-    console.error("My Events Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to load your events",
-    });
-  }
-});
-
-//  UPDATE EVENT
+// UPDATE EVENT
 
 app.patch("/api/events/:id", verifyToken, async (req, res) => {
   try {
@@ -465,7 +561,6 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
       });
     }
 
-    // Prevent duplicate joining.
     const existingJoin = await db.collection("eventParticipants").findOne({
       eventId,
       userEmail,
@@ -478,7 +573,6 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
       });
     }
 
-    // Add volunteer.
     await db.collection("eventParticipants").insertOne({
       eventId,
       userEmail,
@@ -511,7 +605,7 @@ app.post("/api/events/:id/join", verifyToken, async (req, res) => {
   }
 });
 
-//  EVENT PARTICIPANTS
+// EVENT PARTICIPANTS
 
 app.get("/api/events/:id/participants", verifyToken, async (req, res) => {
   try {
@@ -649,7 +743,7 @@ app.get("/api/events/joined", verifyToken, async (req, res) => {
   }
 });
 
-//  VERIFY PARTICIPANT
+// VERIFY PARTICIPANT
 
 app.post(
   "/api/events/:id/verify-participant",
@@ -846,7 +940,7 @@ app.get("/api/impact/me", verifyToken, async (req, res) => {
   }
 });
 
-//  IMPACT LEADERBOARD
+// IMPACT LEADERBOARD
 
 app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
   try {
@@ -1045,86 +1139,6 @@ app.get("/api/certificates/:id/download", verifyToken, async (req, res) => {
   }
 });
 
-//  ALL EVENTS
-app.get("/api/events", async (req, res) => {
-  try {
-    const db = getDB();
-
-    const events = await db
-      .collection("events")
-      .find({ eventDate: { $gte: getTodayBDAsUTC() } })
-      .sort({ eventDate: 1 })
-      .toArray();
-
-    return res.status(200).json({
-      success: true,
-      count: events.length,
-      events,
-    });
-  } catch (error) {
-    console.error("All Events Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to load events",
-    });
-  }
-});
-
-//  SINGLE EVENT
-
-app.get("/api/events/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid event ID",
-      });
-    }
-
-    const db = getDB();
-
-    const event = await db.collection("events").findOne({
-      _id: new ObjectId(id),
-    });
-
-    if (!event) {
-      return res.status(404).json({
-        success: false,
-        message: "Event not found",
-      });
-    }
-
-    const creator = await db.collection("user").findOne(
-      { email: event.creatorEmail },
-      {
-        projection: {
-          name: 1,
-          email: 1,
-          image: 1,
-        },
-      },
-    );
-
-    return res.status(200).json({
-      success: true,
-      event: {
-        ...event,
-        creator: creator || null,
-      },
-    });
-  } catch (error) {
-    console.error("Single Event Error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to load event",
-    });
-  }
-});
-
 // MY PROFILE
 
 app.get("/api/profile/me", verifyToken, async (req, res) => {
@@ -1271,7 +1285,7 @@ app.patch("/api/profile/me", verifyToken, async (req, res) => {
   }
 });
 
-//  START SERVER
+// START SERVER
 
 async function startServer() {
   try {
@@ -1279,22 +1293,18 @@ async function startServer() {
 
     const db = getDB();
 
-    // Prevent duplicate event joining.
     await db
       .collection("eventParticipants")
       .createIndex({ eventId: 1, userEmail: 1 }, { unique: true });
 
-    // Prevent duplicate volunteer verification.
     await db
       .collection("volunteerRecords")
       .createIndex({ eventId: 1, userEmail: 1 }, { unique: true });
 
-    // Unique certificate ID.
     await db
       .collection("certificates")
       .createIndex({ certificateId: 1 }, { unique: true });
 
-    // One certificate per volunteer per event.
     await db
       .collection("certificates")
       .createIndex({ eventId: 1, userEmail: 1 }, { unique: true });
