@@ -970,7 +970,7 @@ app.get("/api/impact/me", verifyToken, async (req, res) => {
   }
 });
 
-// IMPACT LEADERBOARD
+// Leaderboard
 
 app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
   try {
@@ -985,6 +985,7 @@ app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
             volunteerHours: { $sum: "$volunteerHours" },
             totalPoints: { $sum: "$totalPoints" },
             totalEvents: { $sum: 1 },
+            completedEventNames: { $push: "$eventTitle" },
           },
         },
         { $sort: { totalPoints: -1 } },
@@ -1012,6 +1013,7 @@ app.get("/api/impact/leaderboard", verifyToken, async (req, res) => {
             volunteerHours: 1,
             totalPoints: 1,
             totalEvents: 1,
+            completedEventNames: 1,
           },
         },
       ])
